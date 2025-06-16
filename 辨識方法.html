@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>互動式演算法分析報告：從Tick數據識別市場結構</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Calm Harmony -->
+    <!-- Application Structure Plan: The SPA is designed with a thematic, non-linear structure to enhance usability. A top navigation bar allows users to jump to key sections: 1) "基礎概念" introduces Tick data and preprocessing with an interactive K-line visualizer. 2) "演算法儀表板" is the core, an interactive dashboard where users filter algorithms by goal (Trend vs. Consolidation) and type (Traditional vs. ML), with results displayed on cards and a dynamic radar chart for visual comparison. 3) "實作考量" provides practical Python implementation details. 4) "總結建議" offers actionable takeaways. This task-oriented structure allows users to directly compare methods and find relevant information, rather than reading linearly, which is more effective for technical decision-making. -->
+    <!-- Visualization & Content Choices: 
+        - Report Info: K-line types (Time, Tick, Volume, etc.). Goal: Compare. Viz: Interactive HTML/CSS diagram. Interaction: Click buttons to show/hide different K-line visualizations and explanations. Justification: Visually demonstrates the core concept of data aggregation without complex charting. Library/Method: Vanilla JS + Tailwind CSS.
+        - Report Info: Algorithm comparisons (ZigZag, MA, LSTM, Volume Profile, etc.). Goal: Compare & Evaluate. Viz: Interactive cards and a dynamic Radar Chart. Interaction: Filter buttons update which algorithm cards are visible. The radar chart dynamically updates to compare visible algorithms across metrics like 'Real-time', 'Complexity', etc. Justification: This is the core interactive element. It transforms dense tables from the report into an engaging, decision-support tool. Library/Method: Chart.js (Canvas) + Vanilla JS.
+        - Report Info: Key concepts, summaries, recommendations. Goal: Inform. Viz: Styled text blocks, lists, cards. Interaction: Static display with clear typography and layout. Justification: Ensures readability and highlights key takeaways effectively. Library/Method: Tailwind CSS.
+    -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #F8F7F4;
+            color: #4A4A4A;
+        }
+        .nav-link {
+            transition: color 0.3s, border-color 0.3s;
+            border-bottom-width: 2px;
+            border-color: transparent;
+        }
+        .nav-link:hover, .nav-link.active {
+            color: #3B82F6;
+            border-color: #3B82F6;
+        }
+        .btn-filter {
+            transition: all 0.3s;
+        }
+        .btn-filter.active {
+            background-color: #3B82F6;
+            color: white;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px;
+            max-height: 400px;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 400px;
+            }
+        }
+        .k-bar {
+            background-color: #60A5FA;
+            border: 1px solid #3B82F6;
+            margin: 0 1px;
+            flex-shrink: 0;
+        }
+        .k-bar-container {
+            height: 100px;
+            border-bottom: 2px solid #9CA3AF;
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <!-- Header -->
+    <header class="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-50">
+        <nav class="container mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex-shrink-0">
+                    <h1 class="text-xl font-bold text-gray-800">演算法分析儀表板</h1>
+                </div>
+                <div class="hidden md:block">
+                    <div class="ml-10 flex items-baseline space-x-4">
+                        <a href="#section-concepts" class="nav-link px-3 py-2 rounded-md text-sm font-medium text-gray-700">基礎概念</a>
+                        <a href="#section-dashboard" class="nav-link px-3 py-2 rounded-md text-sm font-medium text-gray-700">演算法儀表板</a>
+                        <a href="#section-implementation" class="nav-link px-3 py-2 rounded-md text-sm font-medium text-gray-700">實作考量</a>
+                        <a href="#section-conclusion" class="nav-link px-3 py-2 rounded-md text-sm font-medium text-gray-700">總結建議</a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <main class="container mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12">
+
+        <!-- Section 1: Fundamental Concepts -->
+        <section id="section-concepts" class="mb-16 scroll-mt-20">
+            <h2 class="text-3xl font-bold text-gray-900 mb-2 text-center">核心概念：從Tick到K線</h2>
+            <p class="mt-4 max-w-3xl mx-auto text-center text-lg text-gray-600">
+                演算法交易的基礎始於最原始的市場數據——Tick。然而，原始Tick數據充滿噪音且非結構化，直接分析極為困難。因此，我們需要將其聚合成更具統計意義的「K線」。本節將介紹不同K線的構建方式及其對分析的影響。
+            </p>
+            
+            <div class="mt-12">
+                <div class="bg-white rounded-xl shadow-lg p-6 md:p-8">
+                    <div class="flex flex-col md:flex-row gap-8">
+                        <!-- Controls -->
+                        <div class="w-full md:w-1/3">
+                            <h3 class="font-bold text-xl text-gray-800 mb-4">K線類型比較</h3>
+                            <div id="k-bar-controls" class="space-y-2">
+                                <button data-type="time" class="w-full text-left p-3 rounded-lg bg-gray-100 hover:bg-blue-100 transition-all duration-200">時間K線 (Time Bars)</button>
+                                <button data-type="tick" class="w-full text-left p-3 rounded-lg bg-gray-100 hover:bg-blue-100 transition-all duration-200">Tick K線 (Tick Bars)</button>
+                                <button data-type="volume" class="w-full text-left p-3 rounded-lg bg-gray-100 hover:bg-blue-100 transition-all duration-200">成交量K線 (Volume Bars)</button>
+                                <button data-type="dollar" class="w-full text-left p-3 rounded-lg bg-gray-100 hover:bg-blue-100 transition-all duration-200">美元K線 (Dollar Bars)</button>
+                            </div>
+                        </div>
+                        <!-- Display -->
+                        <div class="w-full md:w-2/3">
+                            <div id="k-bar-display">
+                                <h4 id="k-bar-title" class="font-semibold text-lg text-gray-900">時間K線 (Time Bars)</h4>
+                                <p id="k-bar-description" class="mt-2 text-gray-600">根據固定時間間隔（如1分鐘）聚合Tick數據。在市場平靜時，K線可能資訊量不足；在市場活躍時，單一K線可能包含過多價格波動。</p>
+                                <div class="mt-4 k-bar-container flex items-end">
+                                    <div id="k-bar-visualization" class="w-full h-full flex items-end justify-center transition-all duration-500">
+                                        <!-- Visualization is generated by JS -->
+                                    </div>
+                                </div>
+                                <div class="mt-2 text-center text-sm text-gray-500">示意圖：市場活動隨時間變化</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 2: Algorithm Dashboard -->
+        <section id="section-dashboard" class="mb-16 scroll-mt-20">
+            <h2 class="text-3xl font-bold text-gray-900 mb-2 text-center">互動式演算法儀表板</h2>
+            <p class="mt-4 max-w-3xl mx-auto text-center text-lg text-gray-600">
+                市場分析的核心在於選擇正確的工具。此儀表板能幫助您根據分析目標——「識別趨勢」或「識別盤整」——以及方法論——「傳統指標」或「機器學習」——來篩選和比較各種演算法。
+            </p>
+
+            <!-- Filters -->
+            <div class="mt-12 flex flex-col md:flex-row justify-center items-center gap-4 md:gap-8">
+                <div class="flex items-center gap-2">
+                    <span class="font-medium text-gray-700">分析目標:</span>
+                    <div id="goal-filters" class="flex space-x-2 bg-gray-200 p-1 rounded-full">
+                        <button data-filter="goal" data-value="all" class="btn-filter px-4 py-1.5 text-sm rounded-full">全部</button>
+                        <button data-filter="goal" data-value="trend" class="btn-filter px-4 py-1.5 text-sm rounded-full">趨勢/波段</button>
+                        <button data-filter="goal" data-value="consolidation" class="btn-filter px-4 py-1.5 text-sm rounded-full">盤整/支撐壓力</button>
+                    </div>
+                </div>
+                 <div class="flex items-center gap-2">
+                    <span class="font-medium text-gray-700">方法論:</span>
+                    <div id="method-filters" class="flex space-x-2 bg-gray-200 p-1 rounded-full">
+                        <button data-filter="method" data-value="all" class="btn-filter px-4 py-1.5 text-sm rounded-full">全部</button>
+                        <button data-filter="method" data-value="traditional" class="btn-filter px-4 py-1.5 text-sm rounded-full">傳統指標</button>
+                        <button data-filter="method" data-value="ml" class="btn-filter px-4 py-1.5 text-sm rounded-full">機器學習</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Comparison Chart -->
+             <div class="mt-10 bg-white rounded-xl shadow-lg p-6 md:p-8">
+                 <h3 class="text-xl font-bold text-gray-800 mb-4 text-center">演算法能力雷達圖</h3>
+                 <p class="text-center text-gray-500 mb-6 text-sm">此圖表綜合評估篩選後演算法在各個維度的表現。分數越高代表在該維度表現越好。</p>
+                <div class="chart-container">
+                    <canvas id="algorithmRadarChart"></canvas>
+                </div>
+            </div>
+
+
+            <!-- Algorithm Cards -->
+            <div id="algorithm-grid" class="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                <!-- Cards are generated by JS -->
+            </div>
+        </section>
+
+        <!-- Section 3: Implementation -->
+        <section id="section-implementation" class="mb-16 scroll-mt-20">
+            <h2 class="text-3xl font-bold text-gray-900 mb-2 text-center">Python 實作考量</h2>
+            <p class="mt-4 max-w-3xl mx-auto text-center text-lg text-gray-600">
+                將理論轉化為可執行的程式碼是量化分析的關鍵一步。以下是在Python中實現這些演算法時，需要重點考慮的工具、技術和最佳實踐。
+            </p>
+            <div class="mt-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                <div class="bg-white rounded-xl shadow-lg p-6">
+                    <h3 class="font-bold text-lg mb-3 text-gray-800">核心函式庫</h3>
+                    <ul class="space-y-2 text-gray-600">
+                        <li><span class="font-mono bg-gray-100 text-blue-600 px-2 py-1 rounded">Pandas & NumPy</span>: 數據處理與數值運算基石。</li>
+                        <li><span class="font-mono bg-gray-100 text-blue-600 px-2 py-1 rounded">TA-Lib</span>: 提供大量優化過的傳統技術指標。</li>
+                        <li><span class="font-mono bg-gray-100 text-blue-600 px-2 py-1 rounded">Scikit-learn</span>: 實現傳統機器學習演算法。</li>
+                        <li><span class="font-mono bg-gray-100 text-blue-600 px-2 py-1 rounded">TensorFlow/PyTorch</span>: 用於深度學習模型開發。</li>
+                         <li><span class="font-mono bg-gray-100 text-blue-600 px-2 py-1 rounded">mlfinlab</span>: 專為金融機器學習設計，提供非時間K線實現。</li>
+                    </ul>
+                </div>
+                <div class="bg-white rounded-xl shadow-lg p-6">
+                    <h3 class="font-bold text-lg mb-3 text-gray-800">數據與性能</h3>
+                    <ul class="space-y-2 text-gray-600">
+                         <li><strong class="text-gray-700">高效處理:</strong> 優先使用向量化操作，避免迴圈。</li>
+                         <li><strong class="text-gray-700">數據庫:</strong> 考慮使用 `QuestDB` 等時間序列數據庫管理海量Tick數據。</li>
+                         <li><strong class="text-gray-700">程式碼優化:</strong> 在性能瓶頸處使用 `Numba` 或 `Cython` 加速。</li>
+                         <li><strong class="text-gray-700">並行處理:</strong> 對於可並行化的任務，使用多進程/多線程。</li>
+                    </ul>
+                </div>
+                 <div class="bg-white rounded-xl shadow-lg p-6">
+                    <h3 class="font-bold text-lg mb-3 text-gray-800">驗證與部署</h3>
+                    <ul class="space-y-2 text-gray-600">
+                        <li><strong class="text-gray-700">穩健回測:</strong> 使用歷史Tick數據進行嚴格回測，模擬真實交易。</li>
+                        <li><strong class="text-gray-700">避免過擬合:</strong> 將數據分為訓練、驗證和測試集。</li>
+                        <li><strong class="text-gray-700">滑動窗口:</strong> 定期重新訓練模型，以適應市場變化。</li>
+                        <li><strong class="text-gray-700">即時系統:</strong> 連接低延遲數據源，確保演算法能即時響應。</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 4: Conclusion -->
+        <section id="section-conclusion" class="mb-16 scroll-mt-20">
+            <h2 class="text-3xl font-bold text-gray-900 mb-2 text-center">總結與核心建議</h2>
+            <p class="mt-4 max-w-3xl mx-auto text-center text-lg text-gray-600">
+                從Tick數據中自動識別市場結構是一項複雜但極具價值的任務。成功的關鍵在於結合先進的數據處理技術、傳統指標的直觀性以及機器學習的強大模式識別能力。
+            </p>
+            <div class="mt-12 max-w-4xl mx-auto space-y-6">
+                 <div class="bg-white rounded-xl shadow-lg p-6 flex items-start space-x-4">
+                     <div class="flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-blue-100 text-blue-600">
+                         <span class="text-2xl font-bold">1</span>
+                     </div>
+                     <div>
+                         <h3 class="text-lg font-semibold text-gray-900">數據預處理為基石</h3>
+                         <p class="mt-1 text-gray-600">任何分析的可靠性都源於數據質量。必須投入資源於Tick數據清洗，並選擇合適的非時間K線（如美元K線）進行聚合，以改善統計特性。</p>
+                     </div>
+                 </div>
+                 <div class="bg-white rounded-xl shadow-lg p-6 flex items-start space-x-4">
+                     <div class="flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-blue-100 text-blue-600">
+                         <span class="text-2xl font-bold">2</span>
+                     </div>
+                     <div>
+                         <h3 class="text-lg font-semibold text-gray-900">採用混合方法</h3>
+                         <p class="mt-1 text-gray-600">結合傳統指標（如ATR、成交量分佈）的直觀性與機器學習的預測能力。前者用於快速判斷和解釋，後者用於從複雜數據中挖掘深層模式。</p>
+                     </div>
+                 </div>
+                 <div class="bg-white rounded-xl shadow-lg p-6 flex items-start space-x-4">
+                     <div class="flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-blue-100 text-blue-600">
+                         <span class="text-2xl font-bold">3</span>
+                     </div>
+                     <div>
+                         <h3 class="text-lg font-semibold text-gray-900">重視動態適應性</h3>
+                         <p class="mt-1 text-gray-600">市場條件瞬息萬變，演算法參數不應一成不變。應設計能根據市場波動性或微觀結構動態調整參數的機制，以保持策略的長期有效性。</p>
+                     </div>
+                 </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="bg-gray-800">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <p class="text-center text-sm text-gray-400">
+                基於「利用Python從Tick數據中識別盤整區間、壓力支撐與波段的演算法分析報告」生成。
+            </p>
+        </div>
+    </footer>
+    
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+
+    const algorithmData = [
+        {
+            id: 'zigzag',
+            name: 'ZigZag 指標',
+            goal: ['trend', 'consolidation'],
+            method: 'traditional',
+            description: '通過連接超過預設百分比反轉的擺動高低點來濾除市場噪音，突顯主要趨勢。',
+            pros: '有效濾除噪音，視覺化主要趨勢。',
+            cons: '具滯後性且會重繪，參數設定主觀。',
+            rating: { realtime: 2, complexity: 2, predictive: 1, noise_robustness: 4, interpretability: 5 }
+        },
+        {
+            id: 'fractals',
+            name: '分形指標',
+            goal: ['trend'],
+            method: 'traditional',
+            description: '基於五根K線的反轉模式，識別潛在的市場轉折點。',
+            pros: '易於識別，有助於找到潛在反轉點。',
+            cons: '滯後性強，信號需與其他指標確認。',
+            rating: { realtime: 2, complexity: 1, predictive: 2, noise_robustness: 3, interpretability: 4 }
+        },
+        {
+            id: 'ma',
+            name: '移動平均線 (MA)',
+            goal: ['trend'],
+            method: 'traditional',
+            description: '計算特定期間的平均價格，以平滑價格數據並識別趨勢方向。',
+            pros: '簡單直觀，能有效平滑價格。',
+            cons: '滯後性，在盤整市場中效果不佳。',
+            rating: { realtime: 3, complexity: 1, predictive: 2, noise_robustness: 3, interpretability: 5 }
+        },
+        {
+            id: 'volume_profile',
+            name: '成交量分佈圖',
+            goal: ['consolidation'],
+            method: 'traditional',
+            description: '以水平直方圖顯示各價格水平的交易量，識別高/低成交量區域作為支撐/阻力。',
+            pros: '基於真實交易活動，提供更可靠的支撐/阻力。',
+            cons: '反應性指標，在S/R形成後才識別。',
+            rating: { realtime: 4, complexity: 3, predictive: 3, noise_robustness: 4, interpretability: 4 }
+        },
+        {
+            id: 'atr',
+            name: '波動率指標 (ATR/BB)',
+            goal: ['consolidation'],
+            method: 'traditional',
+            description: '通過衡量市場波動性（如ATR、布林帶寬度）來識別盤整期。低波動通常預示著盤整。',
+            pros: '客觀量化波動性，有效識別盤整期。',
+            cons: '不提供方向性信息，可能滯後。',
+            rating: { realtime: 4, complexity: 2, predictive: 2, noise_robustness: 3, interpretability: 4 }
+        },
+        {
+            id: 'pivot',
+            name: '樞軸點 (Pivot Points)',
+            goal: ['consolidation'],
+            method: 'traditional',
+            description: '基於前一交易日的價格（高、低、收）來預測當日的支撐和阻力位。',
+            pros: '客觀，廣泛應用於日內交易。',
+            cons: '固定公式，對市場突變適應性差。',
+            rating: { realtime: 1, complexity: 1, predictive: 2, noise_robustness: 2, interpretability: 5 }
+        },
+        {
+            id: 'clustering',
+            name: '聚類演算法',
+            goal: ['consolidation'],
+            method: 'ml',
+            description: '使用K-means等無監督學習方法，自動從Tick數據中發現價格聚集區，作為動態支撐/阻力。',
+            pros: '能自動發現隱藏模式，客觀識別S/R。',
+            cons: '模型較複雜，需要仔細選擇參數（如K值）。',
+            rating: { realtime: 3, complexity: 4, predictive: 4, noise_robustness: 4, interpretability: 2 }
+        },
+        {
+            id: 'deep_learning',
+            name: '深度學習 (CNN/LSTM)',
+            goal: ['trend', 'consolidation'],
+            method: 'ml',
+            description: '利用神經網路（如CNN、LSTM）從海量高頻數據（包括訂單簿）中學習複雜的非線性模式。',
+            pros: '預測準確性高，能適應市場變化。',
+            cons: '計算資源需求高，模型可解釋性差，易過擬合。',
+            rating: { realtime: 4, complexity: 5, predictive: 5, noise_robustness: 5, interpretability: 1 }
+        }
+    ];
+
+    let currentGoalFilter = 'all';
+    let currentMethodFilter = 'all';
+
+    const grid = document.getElementById('algorithm-grid');
+    const goalFilters = document.getElementById('goal-filters');
+    const methodFilters = document.getElementById('method-filters');
+    const radarChartCtx = document.getElementById('algorithmRadarChart').getContext('2d');
+    let radarChart;
+
+    function createAlgorithmCard(algo) {
+        return `
+            <div class="bg-white rounded-xl shadow-lg p-6 flex flex-col justify-between transition-all duration-300 hover:shadow-xl hover:-translate-y-1 fade-in">
+                <div>
+                    <h3 class="font-bold text-lg text-gray-900">${algo.name}</h3>
+                    <p class="mt-2 text-sm text-gray-600">${algo.description}</p>
+                    <div class="mt-4 text-sm space-y-2">
+                        <p><strong class="text-green-600">優點:</strong> ${algo.pros}</p>
+                        <p><strong class="text-red-600">缺點:</strong> ${algo.cons}</p>
+                    </div>
+                </div>
+                <div class="mt-4 pt-4 border-t border-gray-200 flex justify-between text-xs font-medium text-gray-500">
+                    <span>目標: ${algo.goal.includes('trend') ? '趨勢' : ''} ${algo.goal.includes('consolidation') ? '/盤整' : ''}</span>
+                    <span>方法: ${algo.method === 'traditional' ? '傳統' : '機器學習'}</span>
+                </div>
+            </div>
+        `;
+    }
+    
+    function renderAlgorithms() {
+        const filteredAlgos = algorithmData.filter(algo => {
+            const goalMatch = currentGoalFilter === 'all' || algo.goal.includes(currentGoalFilter);
+            const methodMatch = currentMethodFilter === 'all' || algo.method === currentMethodFilter;
+            return goalMatch && methodMatch;
+        });
+
+        grid.innerHTML = filteredAlgos.map(createAlgorithmCard).join('');
+        updateRadarChart(filteredAlgos);
+    }
+    
+    function setupFilters() {
+        function updateFilter(filterGroup, value) {
+            if (filterGroup === 'goal') {
+                currentGoalFilter = value;
+            } else if (filterGroup === 'method') {
+                currentMethodFilter = value;
+            }
+            
+            document.querySelectorAll(`[data-filter="${filterGroup}"]`).forEach(btn => {
+                 btn.classList.remove('active');
+            });
+            document.querySelector(`[data-filter="${filterGroup}"][data-value="${value}"]`).classList.add('active');
+            
+            renderAlgorithms();
+        }
+
+        goalFilters.addEventListener('click', (e) => {
+            if (e.target.tagName === 'BUTTON') {
+                updateFilter('goal', e.target.dataset.value);
+            }
+        });
+
+        methodFilters.addEventListener('click', (e) => {
+            if (e.target.tagName === 'BUTTON') {
+                updateFilter('method', e.target.dataset.value);
+            }
+        });
+
+        updateFilter('goal', 'all');
+        updateFilter('method', 'all');
+    }
+
+    function initRadarChart() {
+        const data = {
+            labels: ['即時性', '複雜度', '預測能力', '抗噪音', '可解釋性'],
+            datasets: []
+        };
+        const options = {
+            maintainAspectRatio: false,
+            scales: {
+                r: {
+                    angleLines: { display: true },
+                    suggestedMin: 0,
+                    suggestedMax: 5,
+                    pointLabels: {
+                        font: {
+                            size: 14
+                        }
+                    },
+                    ticks: {
+                        stepSize: 1,
+                        backdropColor: 'rgba(255, 255, 255, 0)'
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                }
+            }
+        };
+
+        radarChart = new Chart(radarChartCtx, {
+            type: 'radar',
+            data: data,
+            options: options
+        });
+    }
+
+    function updateRadarChart(filteredAlgos) {
+        const colors = [
+            'rgba(59, 130, 246, 0.5)',
+            'rgba(239, 68, 68, 0.5)',
+            'rgba(22, 163, 74, 0.5)',
+            'rgba(249, 115, 22, 0.5)',
+            'rgba(139, 92, 246, 0.5)',
+            'rgba(217, 70, 239, 0.5)'
+        ];
+        const borderColors = [
+            'rgb(59, 130, 246)',
+            'rgb(239, 68, 68)',
+            'rgb(22, 163, 74)',
+            'rgb(249, 115, 22)',
+            'rgb(139, 92, 246)',
+            'rgb(217, 70, 239)'
+        ];
+
+        radarChart.data.datasets = filteredAlgos.slice(0, 6).map((algo, index) => ({
+            label: algo.name,
+            data: Object.values(algo.rating),
+            backgroundColor: colors[index % colors.length],
+            borderColor: borderColors[index % borderColors.length],
+            borderWidth: 2,
+            pointBackgroundColor: borderColors[index % borderColors.length],
+            pointRadius: 4,
+            pointHoverRadius: 6
+        }));
+        radarChart.update();
+    }
+    
+    function setupKBarVisualizer() {
+        const controls = document.getElementById('k-bar-controls');
+        const titleEl = document.getElementById('k-bar-title');
+        const descEl = document.getElementById('k-bar-description');
+        const vizEl = document.getElementById('k-bar-visualization');
+
+        const kBarData = {
+            time: {
+                title: '時間K線 (Time Bars)',
+                description: '根據固定時間間隔（如1分鐘）聚合Tick數據。在市場平靜時，K線可能資訊量不足；在市場活躍時，單一K線可能包含過多價格波動。',
+                bars: [
+                    { h: 20, w: 15 }, { h: 80, w: 15 }, { h: 60, w: 15 }, { h: 25, w: 15 },
+                    { h: 15, w: 15 }, { h: 40, w: 15 }, { h: 90, w: 15 }, { h: 50, w: 15 }
+                ]
+            },
+            tick: {
+                title: 'Tick K線 (Tick Bars)',
+                description: '根據固定交易筆數（如500筆）聚合。能更好地反映市場「活動頻率」，在活躍時段K線生成更快、更密集。',
+                 bars: [
+                    { h: 40, w: 20 }, { h: 70, w: 10 }, { h: 50, w: 12 }, { h: 30, w: 25 },
+                    { h: 20, w: 30 }, { h: 80, w: 8 }, { h: 60, w: 11 }, { h: 45, w: 18 }
+                ]
+            },
+            volume: {
+                title: '成交量K線 (Volume Bars)',
+                description: '根據固定「成交總量」聚合。能更好地反映市場「資金活躍度」，大單交易會更快地完成一根K線。',
+                 bars: [
+                    { h: 30, w: 25 }, { h: 80, w: 8 }, { h: 50, w: 15 }, { h: 40, w: 18 },
+                    { h: 25, w: 28 }, { h: 60, w: 10 }, { h: 70, w: 9 }, { h: 35, w: 22 }
+                ]
+            },
+            dollar: {
+                title: '美元K線 (Dollar Bars)',
+                description: '根據固定「成交總金額」聚合。統計特性最優，能同時考慮價格和成交量，更好地反映市場對資產的真實投入。',
+                 bars: [
+                    { h: 50, w: 18 }, { h: 70, w: 12 }, { h: 40, w: 22 }, { h: 20, w: 30 },
+                    { h: 85, w: 9 }, { h: 60, w: 15 }, { h: 30, w: 25 }, { h: 45, w: 19 }
+                ]
+            }
+        };
+
+        function updateDisplay(type) {
+            const data = kBarData[type];
+            titleEl.textContent = data.title;
+            descEl.textContent = data.description;
+            
+            vizEl.innerHTML = data.bars.map(bar => 
+                `<div class="k-bar" style="height: ${bar.h}%; width: ${bar.w}%;"></div>`
+            ).join('');
+
+            document.querySelectorAll('#k-bar-controls button').forEach(btn => {
+                btn.classList.remove('bg-blue-200', 'font-semibold');
+                btn.classList.add('bg-gray-100');
+            });
+            document.querySelector(`#k-bar-controls button[data-type="${type}"]`).classList.add('bg-blue-200', 'font-semibold');
+            document.querySelector(`#k-bar-controls button[data-type="${type}"]`).classList.remove('bg-gray-100');
+        }
+
+        controls.addEventListener('click', (e) => {
+            if (e.target.tagName === 'BUTTON') {
+                updateDisplay(e.target.dataset.type);
+            }
+        });
+
+        updateDisplay('time');
+    }
+
+    // Initialize all components
+    initRadarChart(); // Ensure radar chart is initialized first
+    setupFilters(); 
+    setupKBarVisualizer();
+});
+</script>
+
+</body>
+</html>
